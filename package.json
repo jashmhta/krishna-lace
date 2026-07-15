@@ -1,0 +1,26 @@
+{
+  "name": "krishna-inventory",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Inventory & billing for Krishna Lace House, Mumbai",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "^5.2.8",
+    "@neondatabase/serverless": "^1.1.0",
+    "@phosphor-icons/react": "^2.1.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "tailwindcss": "^4.0.0",
+    "vite": "^5.4.10"
+  }
+}
