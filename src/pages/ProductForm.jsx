@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Modal } from "../components/Modal.jsx";
 import { Field } from "../components/Field.jsx";
 import { Camera, Trash, Image as ImageIcon } from "@phosphor-icons/react";
@@ -9,21 +9,48 @@ import { useStore } from "../lib/useStore.js";
 const UNITS = ["Meter", "Piece", "Roll", "Set", "Pair", "Kg", "Box", "Dozen"];
 const CATEGORIES = ["Lace", "Border", "Fabric", "Dupatta", "Thread", "Button", "General"];
 
+function blankForm(lowStockDefault) {
+  return {
+    name: "",
+    sku: "",
+    category: "Lace",
+    stock: "",
+    unit: "Meter",
+    cost: "",
+    price: "",
+    lowStock: lowStockDefault ?? 10,
+  };
+}
+
+function formFromProduct(editing, lowStockDefault) {
+  if (!editing) return blankForm(lowStockDefault);
+  return {
+    name: editing.name || "",
+    sku: editing.sku || "",
+    category: editing.category || "Lace",
+    stock: editing.stock ?? "",
+    unit: editing.unit || "Meter",
+    cost: editing.cost ?? "",
+    price: editing.price ?? "",
+    lowStock: editing.lowStock ?? lowStockDefault ?? 10,
+  };
+}
+
 export function ProductForm({ open, onClose, editing }) {
   const store = useStore();
+  const lowDefault = store.settings.lowStockDefault ?? 10;
   const fileRef = useRef(null);
-  const [photo, setPhoto] = useState(editing?.photo || "");
-  const [form, setForm] = useState({
-    name: editing?.name || "",
-    sku: editing?.sku || "",
-    category: editing?.category || "Lace",
-    stock: editing?.stock ?? "",
-    unit: editing?.unit || "Meter",
-    cost: editing?.cost ?? "",
-    price: editing?.price ?? "",
-    lowStock: editing?.lowStock ?? store.settings.lowStockDefault ?? 10,
-  });
+  const [photo, setPhoto] = useState("");
+  const [form, setForm] = useState(() => blankForm(lowDefault));
   const [err, setErr] = useState({});
+
+  // Reset fields whenever the modal opens or the product being edited changes
+  useEffect(() => {
+    if (!open) return;
+    setForm(formFromProduct(editing, lowDefault));
+    setPhoto(editing?.photo || "");
+    setErr({});
+  }, [open, editing?.id, lowDefault]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 

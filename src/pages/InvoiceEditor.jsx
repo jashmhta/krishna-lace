@@ -64,6 +64,7 @@ export function InvoiceEditor({ onClose, onCreated }) {
     let client = null;
     if (clientId) {
       const c = selectedClient;
+      if (!c) { toast("Selected client no longer exists", "error"); return; }
       client = { name: c.name, phone: c.phone, address: c.address, gstin: c.gstin };
     } else if (walkin.name.trim()) {
       client = { name: walkin.name.trim(), phone: walkin.phone, address: walkin.address, gstin: "" };
@@ -71,19 +72,22 @@ export function InvoiceEditor({ onClose, onCreated }) {
       client = { name: "Walk-in customer", phone: "", address: "", gstin: "" };
     }
 
-    const inv = createInvoice({
-      clientId: clientId || null,
-      client,
-      items: validItems,
-      discount: Number(discount) || 0,
-      taxRate: Number(taxRate) || 0,
-      paid: Number(paid) || 0,
-      status: Number(paid) >= totals.total && totals.total > 0 ? "Paid" : Number(paid) > 0 ? "Partial" : "Unpaid",
-      date,
-      notes: notes.trim(),
-    });
-    toast("Invoice created");
-    onCreated(inv.id);
+    try {
+      const inv = createInvoice({
+        clientId: clientId || null,
+        client,
+        items: validItems,
+        discount: Number(discount) || 0,
+        taxRate: Number(taxRate) || 0,
+        paid: Number(paid) || 0,
+        date,
+        notes: notes.trim(),
+      });
+      toast("Invoice created");
+      onCreated(inv.id);
+    } catch (err) {
+      toast(err?.message || "Could not create invoice", "error");
+    }
   };
 
   return (
@@ -251,7 +255,7 @@ function ItemRow({ it, i, onChange, onRemove }) {
         <input
           className="input py-2"
           value={it.name}
-          onChange={(e) => onChange(i, { name: e.target.value, productId: e.target.value === it.name ? it.productId : null })}
+          onChange={(e) => onChange(i, { name: e.target.value })}
           placeholder="Item name"
         />
       </div>

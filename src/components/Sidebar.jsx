@@ -14,8 +14,8 @@ export function Sidebar({ active, onNavigate, business, alertCount }) {
   return (
     <aside className="hidden lg:flex flex-col w-[248px] shrink-0 border-r hairline bg-surface/70 backdrop-blur-sm h-dvh sticky top-0 no-print">
       <div className="flex items-center gap-3 px-5 h-[68px] border-b hairline">
-        <div className="grid place-items-center w-9 h-9 rounded-xl bg-ink text-white shrink-0">
-          <Scissors size={18} weight="duotone" />
+        <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 shadow-[0_2px_12px_-2px_rgba(0,0,0,0.15),inset_0_1px_0_0_rgba(255,255,255,0.15)] ring-1 ring-white/20">
+          <img src="/logo.svg" alt="KLH" className="w-full h-full" />
         </div>
         <div className="min-w-0">
           <p className="text-[14px] font-semibold text-ink leading-tight truncate">{business}</p>

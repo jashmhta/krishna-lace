@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useStore } from "../lib/useStore.js";
-import { invoiceTotals, lineTotal, statusColor } from "../lib/calc.js";
+import { invoiceTotals, lineTotal, statusColor, effectiveStatus } from "../lib/calc.js";
 import { inr, shortDate, waNumber } from "../lib/format.js";
-import { updateInvoice, removeInvoice } from "../lib/store.js";
+import { updateInvoice, removeInvoice, recordPayment as storeRecordPayment } from "../lib/store.js";
 import { toast } from "../components/Toast.jsx";
 import { confirmAction } from "../lib/confirm.js";
 import { Modal } from "../components/Modal.jsx";
@@ -22,7 +22,8 @@ export function InvoiceView({ id, onClose }) {
 
   if (!inv) return null;
   const t = invoiceTotals(inv);
-  const sc = statusColor(inv.status);
+  const status = effectiveStatus(inv);
+  const sc = statusColor(status);
   const s = store.settings;
 
   const sendWhatsApp = () => {
@@ -51,28 +52,27 @@ export function InvoiceView({ id, onClose }) {
   };
 
   const markPaid = () => {
-    updateInvoice(inv.id, { status: "Paid", paid: t.total });
+    updateInvoice(inv.id, { paid: t.total });
     toast("Marked as paid");
   };
 
   const recordPayment = () => {
     const amt = Number(payAmount) || 0;
     if (amt <= 0) { toast("Enter an amount", "error"); return; }
-    const newPaid = Math.min(t.total, t.paid + amt);
-    const status = newPaid >= t.total ? "Paid" : "Partial";
-    updateInvoice(inv.id, { paid: newPaid, status });
+    const { applied } = storeRecordPayment(inv.id, amt);
+    if (applied <= 0) { toast("Nothing to record — balance is already settled", "error"); return; }
     setPayOpen(false);
     setPayAmount("");
-    toast(`Recorded ${inr(amt)} payment`);
+    toast(`Recorded ${inr(applied)} payment`);
   };
 
   const askDelete = () => {
     setMenuOpen(false);
     confirmAction({
       title: "Delete invoice?",
-      message: `Invoice ${inv.number} will be removed. Stock that was reduced when it was created will not be added back.`,
+      message: `Invoice ${inv.number} will be removed and stock quantities for linked products will be restored.`,
       confirmLabel: "Delete",
-      onConfirm: () => { removeInvoice(inv.id); toast("Invoice deleted"); onClose(); },
+      onConfirm: () => { removeInvoice(inv.id); toast("Invoice deleted · stock restored"); onClose(); },
     });
   };
 
@@ -141,7 +141,7 @@ export function InvoiceView({ id, onClose }) {
               <p className="text-sm text-muted mt-1 tnum">{inv.number}</p>
               <p className="text-xs text-faint mt-0.5">{shortDate(inv.date)}</p>
               <span className={`no-print inline-flex items-center gap-1.5 mt-3 text-[11px] font-medium px-2.5 py-1 rounded-full ${sc.bg} ${sc.text}`}>
-                <StatusDot color={sc.dot} /> {inv.status}
+                <StatusDot color={sc.dot} /> {status}
               </span>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useStore } from "../lib/useStore.js";
-import { invoiceTotals, statusColor } from "../lib/calc.js";
-import { inr, num, relTime, shortDate } from "../lib/format.js";
+import { invoiceTotals, statusColor, effectiveStatus } from "../lib/calc.js";
+import { inr, num, relTime, shortDate, waNumber } from "../lib/format.js";
 import { StatusDot } from "../components/Bits.jsx";
 import {
   TrendUp, Stack, Warning, Receipt, Plus,
@@ -14,12 +14,11 @@ export default function Dashboard({ navigate }) {
 
   const stats = useMemo(() => {
     const revenue = invoices.reduce((s, inv) => s + invoiceTotals(inv).total, 0);
-    const pending = invoices
-      .filter((i) => (i.status || "").toLowerCase() !== "paid")
-      .reduce((s, inv) => s + invoiceTotals(inv).balance, 0);
+    const pending = invoices.reduce((s, inv) => s + invoiceTotals(inv).balance, 0);
+    const unpaidCount = invoices.filter((inv) => invoiceTotals(inv).balance > 0).length;
     const stockValue = products.reduce((s, p) => s + (Number(p.stock) || 0) * (Number(p.cost) || 0), 0);
     const lowStock = products.filter((p) => Number(p.stock) <= Number(p.lowStock || 0));
-    return { revenue, pending, stockValue, lowStock };
+    return { revenue, pending, unpaidCount, stockValue, lowStock };
   }, [invoices, products]);
 
   // revenue for last 6 months
@@ -57,7 +56,7 @@ export default function Dashboard({ navigate }) {
     {
       label: "Pending Dues", value: inr(stats.pending),
       icon: TrendUp, tint: "bg-alert-soft text-alert",
-      sub: invoices.filter((i) => (i.status || "").toLowerCase() !== "paid").length + " unpaid",
+      sub: stats.unpaidCount + " unpaid",
     },
     {
       label: "Low Stock", value: num(stats.lowStock.length) + " items",
@@ -191,7 +190,8 @@ export default function Dashboard({ navigate }) {
             <ul className="divide-y divide-line">
               {recent.map((inv) => {
                 const t = invoiceTotals(inv);
-                const sc = statusColor(inv.status);
+                const st = effectiveStatus(inv);
+                const sc = statusColor(st);
                 return (
                   <li key={inv.id} className="flex items-center gap-3 px-4 sm:px-5 py-3 sm:py-3.5 hover:bg-surface-2/60 transition">
                     <div className="min-w-0 flex-1">
@@ -201,7 +201,7 @@ export default function Dashboard({ navigate }) {
                     <div className="text-right shrink-0">
                       <p className="text-sm font-semibold text-ink tnum">{inr(t.total)}</p>
                       <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${sc.text} mt-0.5`}>
-                        <StatusDot color={sc.dot} /> {inv.status}
+                        <StatusDot color={sc.dot} /> {st}
                       </span>
                     </div>
                   </li>
@@ -238,7 +238,7 @@ export default function Dashboard({ navigate }) {
                   </div>
                   {c.phone && (
                     <a
-                      href={`https://wa.me/${c.phone.replace(/\D/g, "").replace(/^0/, "")}`}
+                      href={`https://wa.me/${waNumber(c.phone)}`}
                       target="_blank" rel="noreferrer"
                       className="grid place-items-center w-9 h-9 min-h-[40px] rounded-lg text-money hover:bg-money-soft transition"
                       aria-label={`WhatsApp ${c.name}`}

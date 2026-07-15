@@ -10,9 +10,25 @@ export function invoiceTotals(inv) {
   const tax = (subtotal * (Number(inv.taxRate) || 0)) / 100;
   const discount = Number(inv.discount) || 0;
   const total = Math.max(0, subtotal + tax - discount);
-  const paid = Math.min(Number(inv.paid) || 0, total);
+  const paid = Math.min(Math.max(0, Number(inv.paid) || 0), total);
   const balance = Math.max(0, total - paid);
   return { subtotal, tax, discount, total, paid, balance };
+}
+
+/** Derive invoice status from paid amount vs total. */
+export function paymentStatus(paid, total) {
+  const p = Math.max(0, Number(paid) || 0);
+  const t = Math.max(0, Number(total) || 0);
+  if (t <= 0) return "Paid"; // nothing due
+  if (p >= t) return "Paid";
+  if (p > 0) return "Partial";
+  return "Unpaid";
+}
+
+/** Effective status from invoice math (preferred over stored status when they diverge). */
+export function effectiveStatus(inv) {
+  const { paid, total } = invoiceTotals(inv);
+  return paymentStatus(paid, total);
 }
 
 export function statusColor(status) {

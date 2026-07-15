@@ -5,7 +5,7 @@ import { EmptyState } from "../components/EmptyState.jsx";
 import { InvoiceEditor } from "./InvoiceEditor.jsx";
 import { InvoiceView } from "./InvoiceView.jsx";
 import { StatusDot } from "../components/Bits.jsx";
-import { invoiceTotals, statusColor } from "../lib/calc.js";
+import { invoiceTotals, statusColor, effectiveStatus } from "../lib/calc.js";
 import { inr, shortDate, waNumber, relTime } from "../lib/format.js";
 import { exportInvoices } from "../lib/excel.js";
 import { toast } from "../components/Toast.jsx";
@@ -32,7 +32,7 @@ export default function Invoices() {
     const q = query.trim().toLowerCase();
     return invoices.filter((inv) => {
       if (q && !`${inv.number} ${inv.client?.name || ""} ${inv.client?.phone || ""}`.toLowerCase().includes(q)) return false;
-      const st = (inv.status || "unpaid").toLowerCase();
+      const st = effectiveStatus(inv).toLowerCase();
       if (filter === "all") return true;
       return st === filter;
     });
@@ -78,7 +78,7 @@ export default function Invoices() {
         <SearchInput value={query} onChange={setQuery} placeholder="Search by number, client or phone" className="sm:max-w-xs" />
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
           {FILTERS.map((f) => {
-            const count = f.key === "all" ? invoices.length : invoices.filter((i) => (i.status || "unpaid").toLowerCase() === f.key).length;
+            const count = f.key === "all" ? invoices.length : invoices.filter((i) => effectiveStatus(i).toLowerCase() === f.key).length;
             return (
               <button
                 key={f.key}
@@ -106,7 +106,8 @@ export default function Invoices() {
           <ul className="divide-y divide-line">
             {filtered.map((inv) => {
               const t = invoiceTotals(inv);
-              const sc = statusColor(inv.status);
+              const st = effectiveStatus(inv);
+              const sc = statusColor(st);
               return (
                 <li key={inv.id}>
                   <div className="flex items-center gap-3 px-3 sm:px-5 py-3 sm:py-3.5 hover:bg-surface-2/50 transition group min-h-[56px]">
@@ -124,7 +125,7 @@ export default function Invoices() {
                     <div className="text-right shrink-0">
                       <p className="text-sm sm:text-[15px] font-semibold text-ink tnum">{inr(t.total)}</p>
                       <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${sc.text} mt-0.5`}>
-                        <StatusDot color={sc.dot} /> {inv.status}
+                        <StatusDot color={sc.dot} /> {st}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">

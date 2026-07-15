@@ -1,4 +1,5 @@
 import { uid, nowISO } from "./id.js";
+import { invoiceTotals, paymentStatus } from "./calc.js";
 
 const KEY = "klh_store_v1";
 
@@ -120,8 +121,16 @@ function scheduleSync() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(state),
       });
-      if (res.ok) lastSyncAt = Date.now();
-      else if (res.status === 200) apiAvailable = false; // no-database response
+      if (!res.ok) return;
+      let body = null;
+      try { body = await res.json(); } catch { /* empty body is fine */ }
+      // API returns { ok: false, error: "no-database" } with 200 when Neon is not configured
+      if (body && body.ok === false) {
+        apiAvailable = false;
+        return;
+      }
+      lastSyncAt = Date.now();
+      apiAvailable = true;
     } catch {
       // offline or no API — silently ignore, localStorage still works
     }
@@ -143,10 +152,34 @@ export function updateSettings(patch) {
   persist();
 }
 
+/** Set the next invoice sequence number (used by Settings "Next number"). */
+export function setNextInvoiceNumber(n) {
+  const v = Math.max(1, Math.floor(Number(n) || 1));
+  state.counter = v;
+  state.settings = { ...state.settings, invoiceStart: v };
+  persist();
+}
+
 // ---------- PRODUCTS ----------
+/** Apply stock delta without persisting (used when batching with invoice create/delete). */
+function applyStockDelta(id, delta) {
+  state.products = state.products.map((p) =>
+    p.id === id
+      ? { ...p, stock: Math.max(0, (Number(p.stock) || 0) + delta), updatedAt: nowISO() }
+      : p
+  );
+}
+
 export function addProduct(data) {
-  const p = { id: uid("p"), ...data, photo: data.photo || "", createdAt: nowISO(), updatedAt: nowISO() };
-  state.products = [p, ...state.products];
+  const p = {
+    ...data,
+    id: data.id || uid("p"),
+    photo: data.photo || "",
+    createdAt: data.createdAt || nowISO(),
+    updatedAt: nowISO(),
+  };
+  // Avoid duplicate id if restoring
+  state.products = [p, ...state.products.filter((x) => x.id !== p.id)];
   persist();
   return p;
 }
@@ -161,9 +194,7 @@ export function removeProduct(id) {
   persist();
 }
 export function adjustStock(id, delta) {
-  state.products = state.products.map((p) =>
-    p.id === id ? { ...p, stock: Math.max(0, (p.stock || 0) + delta), updatedAt: nowISO() } : p
-  );
+  applyStockDelta(id, delta);
   persist();
 }
 export function setProducts(list) {
@@ -173,8 +204,12 @@ export function setProducts(list) {
 
 // ---------- CLIENTS ----------
 export function addClient(data) {
-  const c = { id: uid("c"), ...data, createdAt: nowISO() };
-  state.clients = [c, ...state.clients];
+  const c = {
+    ...data,
+    id: data.id || uid("c"),
+    createdAt: data.createdAt || nowISO(),
+  };
+  state.clients = [c, ...state.clients.filter((x) => x.id !== c.id)];
   persist();
   return c;
 }
@@ -183,11 +218,9 @@ export function updateClient(id, patch) {
   persist();
 }
 export function removeClient(id) {
+  // Keep invoice.clientId so undo (restore same id) re-links cleanly.
+  // Invoice already stores a client snapshot for display.
   state.clients = state.clients.filter((c) => c.id !== id);
-  // keep invoices (they store a snapshot) but unlink client id
-  state.invoices = state.invoices.map((inv) =>
-    inv.clientId === id ? { ...inv, clientId: null } : inv
-  );
   persist();
 }
 
@@ -196,7 +229,59 @@ export function nextInvoiceNumber() {
   return `${state.settings.invoicePrefix}-${state.counter}`;
 }
 
+/**
+ * Aggregate qty needed per productId from line items.
+ */
+function stockNeedByProduct(items) {
+  const need = {};
+  for (const it of items || []) {
+    if (!it.productId) continue;
+    const q = Math.max(0, Number(it.qty) || 0);
+    if (q <= 0) continue;
+    need[it.productId] = (need[it.productId] || 0) + q;
+  }
+  return need;
+}
+
+/**
+ * Throws Error with message if any linked product lacks stock.
+ */
+export function assertStockAvailable(items) {
+  const need = stockNeedByProduct(items);
+  for (const [pid, qty] of Object.entries(need)) {
+    const p = state.products.find((x) => x.id === pid);
+    if (!p) {
+      throw new Error("A product on this invoice is no longer in stock. Remove it or add a custom line.");
+    }
+    const have = Number(p.stock) || 0;
+    if (have < qty) {
+      throw new Error(
+        `Not enough stock for "${p.name}" — have ${have} ${p.unit || ""}, need ${qty}`.trim()
+      );
+    }
+  }
+}
+
 export function createInvoice(data) {
+  const items = (data.items || []).map((it) => ({
+    ...it,
+    qty: Number(it.qty) || 0,
+    price: Number(it.price) || 0,
+    discount: Number(it.discount) || 0,
+  }));
+
+  assertStockAvailable(items);
+
+  const draft = {
+    items,
+    discount: Number(data.discount) || 0,
+    taxRate: data.taxRate ?? state.settings.taxRate,
+    paid: Number(data.paid) || 0,
+  };
+  const totals = invoiceTotals(draft);
+  const paid = totals.paid; // clamped to total
+  const status = paymentStatus(paid, totals.total);
+
   const number = nextInvoiceNumber();
   const inv = {
     id: uid("inv"),
@@ -204,35 +289,77 @@ export function createInvoice(data) {
     date: data.date || new Date().toISOString().slice(0, 10),
     clientId: data.clientId || null,
     client: data.client, // snapshot {name, phone, address, gstin}
-    items: data.items || [],
-    discount: data.discount || 0,
-    taxRate: data.taxRate ?? state.settings.taxRate,
-    paid: data.paid || 0,
-    status: data.status || "Unpaid",
+    items,
+    discount: draft.discount,
+    taxRate: draft.taxRate,
+    paid,
+    status,
     notes: data.notes || "",
     createdAt: nowISO(),
   };
+
   state.invoices = [inv, ...state.invoices];
   state.counter += 1;
-  // decrement stock for sold items
-  inv.items.forEach((it) => {
-    if (it.productId) adjustStock(it.productId, -Math.max(0, Number(it.qty) || 0));
-  });
+
+  // Decrement stock once, then single persist
+  for (const it of inv.items) {
+    if (it.productId) applyStockDelta(it.productId, -Math.max(0, Number(it.qty) || 0));
+  }
   persist();
   return inv;
 }
 
 export function updateInvoice(id, patch) {
-  state.invoices = state.invoices.map((inv) => (inv.id === id ? { ...inv, ...patch } : inv));
+  state.invoices = state.invoices.map((inv) => {
+    if (inv.id !== id) return inv;
+    const next = { ...inv, ...patch };
+    // Keep paid clamped and status derived whenever paid is touched
+    if ("paid" in patch) {
+      const t = invoiceTotals(next);
+      next.paid = t.paid;
+      next.status = paymentStatus(t.paid, t.total);
+    }
+    return next;
+  });
   persist();
 }
 
 export function setInvoiceStatus(id, status) {
-  updateInvoice(id, { status });
+  const inv = state.invoices.find((x) => x.id === id);
+  if (!inv) return;
+  const t = invoiceTotals(inv);
+  const s = (status || "").toLowerCase();
+  if (s === "paid") {
+    updateInvoice(id, { paid: t.total });
+  } else if (s === "unpaid") {
+    updateInvoice(id, { paid: 0 });
+  } else {
+    // Partial / unknown: re-clamp paid and re-derive status (never store a free-floating label)
+    updateInvoice(id, { paid: t.paid });
+  }
+}
+
+/** Record a payment; returns { applied, paid, status }. */
+export function recordPayment(id, amount) {
+  const inv = state.invoices.find((x) => x.id === id);
+  if (!inv) return { applied: 0, paid: 0, status: "Unpaid" };
+  const t = invoiceTotals(inv);
+  const applied = Math.min(t.balance, Math.max(0, Number(amount) || 0));
+  const paid = t.paid + applied;
+  const status = paymentStatus(paid, t.total);
+  updateInvoice(id, { paid, status });
+  return { applied, paid, status };
 }
 
 export function removeInvoice(id) {
-  state.invoices = state.invoices.filter((inv) => inv.id !== id);
+  const inv = state.invoices.find((x) => x.id === id);
+  if (inv) {
+    // Restore stock for linked line items
+    for (const it of inv.items || []) {
+      if (it.productId) applyStockDelta(it.productId, Math.max(0, Number(it.qty) || 0));
+    }
+  }
+  state.invoices = state.invoices.filter((x) => x.id !== id);
   persist();
 }
 
@@ -240,6 +367,40 @@ export function removeInvoice(id) {
 export function clearAllData() {
   state = freshState();
   persist();
+}
+
+/**
+ * Test-only: replace in-memory state and disable cloud sync.
+ * App code must not call this. Used by automated tests to isolate cases.
+ */
+export function __resetForTests(next) {
+  clearTimeout(syncTimer);
+  syncTimer = null;
+  apiAvailable = false; // never hit network during tests
+  lastSyncAt = 0;
+  listeners.clear();
+  if (next) {
+    state = {
+      settings: { ...defaultSettings, ...(next.settings || {}) },
+      products: next.products || [],
+      clients: next.clients || [],
+      invoices: next.invoices || [],
+      counter: next.counter ?? defaultSettings.invoiceStart,
+    };
+  } else {
+    state = {
+      settings: { ...defaultSettings },
+      products: [],
+      clients: [],
+      invoices: [],
+      counter: defaultSettings.invoiceStart,
+    };
+  }
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch {
+    /* node without storage polyfill */
+  }
 }
 
 // ---------- DERIVED HELPERS ----------

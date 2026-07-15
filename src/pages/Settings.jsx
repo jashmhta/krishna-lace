@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useStore } from "../lib/useStore.js";
 import { Field } from "../components/Field.jsx";
 import { toast } from "../components/Toast.jsx";
-import { updateSettings, clearAllData, syncFromAPI, isCloudEnabled } from "../lib/store.js";
+import { updateSettings, setNextInvoiceNumber, clearAllData, syncFromAPI, isCloudEnabled } from "../lib/store.js";
 import { exportProducts, exportClients, exportInvoices } from "../lib/excel.js";
 import { confirmAction } from "../lib/confirm.js";
 import {
@@ -13,7 +13,7 @@ import {
 export default function Settings() {
   const store = useStore();
   const s = store.settings;
-  const [form, setForm] = useState({ ...s });
+  const [form, setForm] = useState({ ...s, nextNumber: store.counter });
   const [cloud, setCloud] = useState(isCloudEnabled());
   const [syncing, setSyncing] = useState(false);
 
@@ -26,12 +26,20 @@ export default function Settings() {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = () => {
+    const next = Math.max(1, Math.floor(Number(form.nextNumber) || store.counter || 1));
     updateSettings({
-      ...form,
-      invoiceStart: Number(form.invoiceStart) || s.invoiceStart,
+      business: form.business,
+      tagline: form.tagline,
+      address: form.address,
+      phone: form.phone,
+      email: form.email,
+      gstin: form.gstin,
+      state: form.state,
+      invoicePrefix: form.invoicePrefix,
       taxRate: Number(form.taxRate) || 0,
       lowStockDefault: Number(form.lowStockDefault) || 10,
     });
+    setNextInvoiceNumber(next);
     toast("Settings saved");
   };
 
@@ -87,7 +95,9 @@ export default function Settings() {
         </div>
         <div className="grid sm:grid-cols-3 gap-4">
           <Field label="Invoice prefix"><input className="input" value={form.invoicePrefix} onChange={(e) => set("invoicePrefix", e.target.value)} /></Field>
-          <Field label="Next number" hint="Auto-increments"><input type="number" className="input tnum" value={form.invoiceStart} onChange={(e) => set("invoiceStart", e.target.value)} /></Field>
+          <Field label="Next number" hint="Used on the next invoice">
+            <input type="number" min="1" className="input tnum" value={form.nextNumber} onChange={(e) => set("nextNumber", e.target.value)} />
+          </Field>
           <Field label="Default GST %" hint="0 = no tax"><input type="number" min="0" max="100" className="input tnum" value={form.taxRate} onChange={(e) => set("taxRate", e.target.value)} /></Field>
         </div>
         <Field label="Default low-stock alert level" className="mt-4" hint="Used when adding new products">
